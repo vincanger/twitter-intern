@@ -1,0 +1,116 @@
+app twitterAgent {
+  wasp: {
+    version: "^0.10.6"
+  },
+  title: "twitter-agent",
+  db: { 
+    system: PostgreSQL,
+  },
+  auth: {
+    userEntity: User,
+    onAuthFailedRedirectTo: "/login",
+    methods: {
+      usernameAndPassword: {},
+    }
+  },
+  dependencies: [
+    ("openai", "3.2.1"),
+    ("rettiwt-api", "1.1.8"),
+    ("langchain", "0.0.91"),
+    ("@pinecone-database/pinecone", "0.1.6"),
+    ("@headlessui/react", "1.7.15"),
+    ("react-icons", "4.8.0"),
+    ("react-twitter-embed", "4.0.4")
+  ],
+}
+
+// ### Database Models
+
+entity Tweet {=psl
+	id              Int           @id @default(autoincrement())
+  tweetId         String        
+  authorUsername  String
+  content         String
+  tweetedAt       DateTime      @default(now())
+  user            User          @relation(fields: [userId], references: [id])
+  userId          Int
+  drafts          TweetDraft[]
+  ideas           GeneratedIdea[]
+psl=}
+
+entity TweetDraft {=psl
+  id              Int         @id @default(autoincrement())
+  content         String
+  notes           String
+  originalTweet   Tweet       @relation(fields: [originalTweetId], references: [id])
+  originalTweetId Int
+  createdAt       DateTime    @default(now())
+  user            User        @relation(fields: [userId], references: [id])
+  userId          Int
+psl=}
+
+entity GeneratedIdea {=psl
+  id              Int         @id @default(autoincrement())
+  content         String
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @default(now())
+  user            User        @relation(fields: [userId], references: [id])
+  userId          Int
+  originalTweet   Tweet?      @relation(fields: [originalTweetId], references: [id])
+  originalTweetId Int?
+  isEmbedded      Boolean     @default(false)
+psl=}
+
+entity User {=psl
+  id              Int         @id @default(autoincrement())
+  username        String      @unique
+  password        String
+  createdAt       DateTime    @default(now())
+  favUsers        String[]
+  originalTweets  Tweet[]
+  tweetDrafts     TweetDraft[]
+  generatedIdeas  GeneratedIdea[]
+psl=}
+
+// <<< Client Pages & Routes
+
+route RootRoute { path: "/", to: MainPage }
+page MainPage {
+  authRequired: true,
+  component: import Main from "@client/MainPage"
+}
+
+route LoginPageRoute { path: "/login", to: LoginPage }
+page LoginPage {
+  component: import Login from "@client/LoginPage"
+}
+
+route AccountRoute { path: "/account", to: AccountPage }
+page AccountPage {
+  authRequired: true,
+  component: import Account from "@client/AccountPage"
+}
+
+// !!! Actions
+
+action embedIdea {
+  fn: import { embedIdea } from "@server/ideas.js",
+  entities: [GeneratedIdea]
+}
+
+action generateNewIdeas {
+  fn: import { generateNewIdeas } from "@server/ideas.js",
+  entities: [GeneratedIdea, Tweet, TweetDraft, User]
+}
+
+action updateAccount {
+  fn: import { updateAccount } from "@server/account.js",
+  entities: [User]
+}
+
+// ??? Queries
+
+query getTweetDraftsWithIdeas {
+  fn: import { getTweetDraftsWithIdeas } from "@server/ideas.js",
+  entities: [TweetDraft]
+}
