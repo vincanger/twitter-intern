@@ -114,3 +114,20 @@ query getTweetDraftsWithIdeas {
   fn: import { getTweetDraftsWithIdeas } from "@server/ideas.js",
   entities: [TweetDraft]
 }
+
+// +++ Jobs
+
+job newIdeasJob {
+  executor: PgBoss,
+  perform: {
+    fn: import generateNewIdeasWorker from "@server/worker/generateNewIdeasWorker.js"
+  },
+  entities: [User, GeneratedIdea, Tweet, TweetDraft],
+  schedule: {
+    // run cron job every 30 minutes
+    cron: "*/30 * * * *",
+    executorOptions: {
+      pgBoss: {=json { "retryLimit": 2 } json=},
+    }
+  }
+}
