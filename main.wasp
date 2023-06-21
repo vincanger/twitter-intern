@@ -3,6 +3,9 @@ app twitterAgent {
     version: "^0.10.6"
   },
   title: "twitter-agent",
+  client: {
+    rootComponent: import App from "@client/App",
+  },
   db: { 
     system: PostgreSQL,
   },
@@ -91,6 +94,12 @@ page AccountPage {
   component: import Account from "@client/AccountPage"
 }
 
+route NotesPage { path: "/notes", to: NotesPage }
+page NotesPage {
+  authRequired: true,
+  component: import Notes from "@client/NotesPage"
+}
+
 // !!! Actions
 
 action embedIdea {
@@ -113,6 +122,11 @@ action updateAccount {
 query getTweetDraftsWithIdeas {
   fn: import { getTweetDraftsWithIdeas } from "@server/ideas.js",
   entities: [TweetDraft]
+}
+
+query getEmbeddedNotes {
+  fn: import { getEmbeddedNotes } from "@server/ideas.js",
+  entities: [GeneratedIdea]
 }
 
 // +++ Jobs

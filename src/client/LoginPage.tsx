@@ -12,7 +12,9 @@ export default () => {
   return (
     <>
       {showSignupForm ? <SignupForm /> : <LoginForm />}
-      <div onClick={handleShowSignupForm}>{showSignupForm ? 'Already Registered? Login!' : 'No Account? Sign up!'}</div>
+      <div onClick={handleShowSignupForm} className='underline cursor-pointer hover:opacity-80'>
+        {showSignupForm ? 'Already Registered? Login!' : 'No Account? Sign up!'}
+      </div>
     </>
   );
 };

@@ -8,7 +8,7 @@ import { PineconeClient } from '@pinecone-database/pinecone';
 import { generateIdeas } from './chain.js'; // < ---- this too -----
 import { Rettiwt } from 'rettiwt-api'; // < ---- and this here -----
 const twitter = Rettiwt(); // < ---- and this -----
-import type { GetTweetDraftsWithIdeas } from '@wasp/queries/types';
+import type { GetTweetDraftsWithIdeas, GetEmbeddedNotes } from '@wasp/queries/types';
 
 const pinecone = new PineconeClient();
 export const initPinecone = async () => {
@@ -76,8 +76,8 @@ export const embedIdea: EmbedIdea<{ idea: string }, GeneratedIdea> = async ({ id
       pageContent: newIdea.content,
     });
 		
-		// add the document to the vectore store
-    await vectorStore.addDocuments([ideaDoc]);
+		// add the document to the vectore store along with its id
+    await vectorStore.addDocuments([ideaDoc], [newIdea.id.toString()]);
 
     newIdea = await context.entities.GeneratedIdea.update({
       where: {
@@ -269,3 +269,21 @@ export const getTweetDraftsWithIdeas: GetTweetDraftsWithIdeas<never, TweetDrafts
 
   return drafts;
 };
+
+export const getEmbeddedNotes: GetEmbeddedNotes<never, GeneratedIdea[]> = async (_args, context) => {
+  if (!context.user) {
+    throw new HttpError(401, 'User is not authorized');
+  }
+
+  const notes = await context.entities.GeneratedIdea.findMany({
+    where: {
+      userId: context.user.id,
+      isEmbedded: true,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  return notes;
+}

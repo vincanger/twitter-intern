@@ -6,8 +6,8 @@ import updateAccount from '@wasp/actions/updateAccount'
 
 const AccountPage = ({ user }: { user: User }) => {
   return (
-    <div className='flex flex-col justify-center items-center mx-auto mt-12'>
-      <div className='flex flex-col items-center justify-center gap-4 border border-neutral-700 bg-neutral-100/40 rounded-xl p-1 sm:p-4 w-full md:w-4/5 lg:w-3/4 xl:w-3/5 2xl:w-1/2 '>
+    <div className='flex flex-col justify-center items-center mt-12 w-full'>
+      <div className='flex flex-col items-center justify-center gap-4 border border-neutral-700 bg-neutral-100/40 rounded-xl p-1 sm:p-4 w-full'>
         <div className='flex flex-row justify-end w-full px-4 pt-2'>
           <Button onClick={logout}>Logout</Button>
         </div>
@@ -59,7 +59,7 @@ function InputFields({ user }: { user: User }) {
   return (
     <div className='w-full p-4'>
       <div className='flex flex-row justify-start items-start'>
-        <h2 className='ml-1 font-bold'>Your Favorite Twitter Accounts</h2>
+        <h2 className='ml-1 font-bold'>Trend-Setting Twitter Accounts</h2>
       </div>
       {fields.map((field, index) => (
         <div key={index} className='my-2'>
