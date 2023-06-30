@@ -1,3 +1,4 @@
+import type { GetTweetDraftsWithIdeas, GetEmbeddedNotes } from '@wasp/queries/types';
 import type { EmbedIdea, GenerateNewIdeas } from '@wasp/actions/types';
 import type { GeneratedIdea } from '@wasp/entities';
 import HttpError from '@wasp/core/HttpError.js';
@@ -7,8 +8,13 @@ import { OpenAIEmbeddings } from 'langchain/embeddings/openai';
 import { PineconeClient } from '@pinecone-database/pinecone';
 import { generateIdeas } from './chain.js'; // < ---- this too -----
 import { Rettiwt } from 'rettiwt-api'; // < ---- and this here -----
-const twitter = Rettiwt(); // < ---- and this -----
-import type { GetTweetDraftsWithIdeas, GetEmbeddedNotes } from '@wasp/queries/types';
+
+const twitter = Rettiwt({
+  kdt: process.env.KDT!,
+  twid: process.env.TWID!,
+  ct0:  process.env.CT0!,
+  auth_token: process.env.AUTH_TOKEN!,
+});
 
 const pinecone = new PineconeClient();
 export const initPinecone = async () => {
@@ -35,48 +41,47 @@ export const embedIdea: EmbedIdea<{ idea: string }, GeneratedIdea> = async ({ id
 
   try {
     let newIdea = await context.entities.GeneratedIdea.create({
-        data: {
-          content: idea,
-          userId: context.user.id,
-        },
-      });
-    
+      data: {
+        content: idea,
+        userId: context.user.id,
+      },
+    });
 
     if (!newIdea) {
       throw new HttpError(404, 'Idea not found');
     }
 
     const pinecone = await initPinecone();
-		
-		// we need to create an index to save the vector embeddings to
-		// an index is similar to a table in relational database world
-		const availableIndexes = await pinecone.listIndexes();
-		if (!availableIndexes.includes('embeds-test')) {
-		    console.log('creating index');
-		    await pinecone.createIndex({
-		      createRequest: {
-		        name: 'embeds-test',
-						// open ai uses 1536 dimensions for their embeddings
-		        dimension: 1536, 
-		      },
-		    });
-		  }
+
+    // we need to create an index to save the vector embeddings to
+    // an index is similar to a table in relational database world
+    const availableIndexes = await pinecone.listIndexes();
+    if (!availableIndexes.includes('embeds-test')) {
+      console.log('creating index');
+      await pinecone.createIndex({
+        createRequest: {
+          name: 'embeds-test',
+          // open ai uses 1536 dimensions for their embeddings
+          dimension: 1536,
+        },
+      });
+    }
 
     const pineconeIndex = pinecone.Index('embeds-test');
-		
-		// the LangChain vectorStore wrapper
+
+    // the LangChain vectorStore wrapper
     const vectorStore = new PineconeStore(embeddings, {
       pineconeIndex: pineconeIndex,
       namespace: context.user.username,
     });
-		
-		// create a document with the idea's content to be embedded
+
+    // create a document with the idea's content to be embedded
     const ideaDoc = new Document({
       metadata: { type: 'note' },
       pageContent: newIdea.content,
     });
-		
-		// add the document to the vectore store along with its id
+
+    // add the document to the vectore store along with its id
     await vectorStore.addDocuments([ideaDoc], [newIdea.id.toString()]);
 
     newIdea = await context.entities.GeneratedIdea.update({
@@ -95,124 +100,136 @@ export const embedIdea: EmbedIdea<{ idea: string }, GeneratedIdea> = async ({ id
 };
 
 export const generateNewIdeas: GenerateNewIdeas<never, void> = async (_args, context) => {
-	try {
+  try {
     // get the logged in user that Wasp passes to the action via the context
-    const user = context.user
+    const user = context.user;
 
     if (!user) {
       throw new HttpError(401, 'User is not authorized');
     }
 
-      for (let h = 0; h < user.favUsers.length; h++) {
-        const favUser = user.favUsers[h];
-        const userDetails = await twitter.users.getUserDetails(favUser);
-        const favUserTweets = await twitter.users.getUserTweets(userDetails.id);
-				// filter out retweets
-        let favUserTweetTexts = favUserTweets.list.filter((tweet) => !tweet.fullText.startsWith('RT'));
-        favUserTweetTexts = favUserTweetTexts.filter((tweet) => {
-          // filter out tweets that were created more than 24 hours ago
-          const createdAt = new Date(tweet.createdAt); // createdAt: 'Wed May 24 03:41:53 +0000 2023'
-          const now = new Date();
-          const twelveHoursAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
-          return createdAt > twelveHoursAgo;
+    for (let h = 0; h < user.favUsers.length; h++) {
+      const favUser = user.favUsers[h];
+      console.log('favUser: ', favUser);
+
+      const oneDayFromNow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      // convert oneDayFromNow to format YYYY-MM-DD
+      const endDate = oneDayFromNow.toISOString().split('T')[0];
+
+      // find the most recent tweet from the favUser
+      const mostRecentTweet = await context.entities.Tweet.findFirst({
+        where: {
+          authorUsername: favUser,
+        },
+        orderBy: {
+          tweetedAt: 'desc',
+        },
+      });
+
+      console.log('mostRecentTweet: ', mostRecentTweet)
+
+      const favUserTweets = await twitter.tweets.getTweets({
+        fromUsers: [favUser],
+        sinceId: mostRecentTweet?.tweetId || undefined, // get tweets since the most recent tweet if it exists
+        endDate: endDate, // endDate in format YYYY-MM-DD
+      });
+
+      const favUserTweetTexts = favUserTweets.list
+
+      for (let i = 0; i < favUserTweetTexts.length; i++) {
+        const tweet = favUserTweetTexts[i];
+
+        const tweets = await context.entities.User.findFirst({
+          where: {
+            id: user.id,
+          },
+          select: {
+            originalTweets: {
+              where: {
+                tweetId: tweet.id,
+              },
+            },
+          },
         });
 
-        for (let i = 0; i < favUserTweetTexts.length; i++) {
-          const tweet = favUserTweetTexts[i];
+        const originalTweets = tweets?.originalTweets;
 
-					const tweets = await context.entities.User.findFirst({
-            where: {
-              id: user.id,
-            },
-            select: {
-              originalTweets: {
-                where: {
-                  tweetId: tweet.id,
-                },
-              },
-            },
-          });
-
-          const originalTweets = tweets?.originalTweets;
-
-          /** 
-           * If the tweet already exists in the database, skip generating drafts and ideas for it.
-           */
-          if (originalTweets?.length && originalTweets.length > 0) {
-            console.log('tweet already exists in db, skipping generating drafts...');
-            continue;
-          }
-          
-          /**
-           * this is where the magic happens
-           */
-          const draft = await generateIdeas(tweet.fullText, user.username);
-          console.log('draft: ', draft);
-
-          const originalTweet = await context.entities.Tweet.create({
-            data: {
-              tweetId: tweet.id,
-              content: tweet.fullText,
-              authorUsername: userDetails.userName,
-              tweetedAt: new Date(tweet.createdAt),
-							userId: user.id
-            },
-          });
-
-          let newTweetIdeas = draft.newTweetIdeas.split('\n');
-          newTweetIdeas = newTweetIdeas
-            .filter((idea) => idea.trim().length > 0)
-            .map((idea) => {
-              // remove all dashes that are not directly followed by a letter
-              idea = idea.replace(/-(?![a-zA-Z])/g, '');
-              idea = idea.replace(/"/g, '');
-              idea = idea.replace(/{/g, '');
-              idea = idea.replace(/}/g, '');
-              // remove hashtags and the words that follow them
-              idea = idea.replace(/#[a-zA-Z0-9]+/g, '');
-              idea = idea.replace(/^\s*[\r\n]/gm, ''); // remove new line breaks
-              idea = idea.trim();
-              // check if last character contains punctuation and if not add a period
-              if (idea.length > 1 && !idea[idea.length - 1].match(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g)) {
-                idea += '.';
-              }
-              return idea;
-            });
-          for (let j = 0; j < newTweetIdeas.length; j++) {
-            const newTweetIdea = newTweetIdeas[j];
-            const newIdea = await context.entities.GeneratedIdea.create({
-              data: {
-                content: newTweetIdea,
-                originalTweetId: originalTweet.id,
-								userId: user.id
-              },
-            });
-            console.log('newIdea saved to DB: ', newIdea);
-          }
-
-          const interestingTweetDraft = await context.entities.TweetDraft.create({
-            data: {
-              content: draft.interestingTweet,
-              originalTweetId: originalTweet.id,
-              notes: draft.notes,
-							userId: user.id
-            },
-          });
-
-          console.log('interestingTweetDraft saved to DB: ', interestingTweetDraft);
-
-          // create a delay to avoid rate limiting
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-
+        /**
+         * If the tweet already exists in the database, skip generating drafts and ideas for it.
+         */
+        if (originalTweets?.length && originalTweets.length > 0) {
+          console.log('tweet already exists in db, skipping generating drafts...');
+          continue;
         }
+
+        /**
+         * this is where the magic happens
+         */
+        const draft = await generateIdeas(tweet.fullText, user.username);
+        console.log('draft: ', draft);
+
+        const originalTweet = await context.entities.Tweet.create({
+          data: {
+            tweetId: tweet.id,
+            content: tweet.fullText,
+            authorUsername: favUser,
+            tweetedAt: new Date(tweet.createdAt),
+            userId: user.id,
+          },
+        });
+
+        let newTweetIdeas = draft.newTweetIdeas.split('\n');
+        newTweetIdeas = newTweetIdeas
+          .filter((idea) => idea.trim().length > 0)
+          .map((idea) => {
+            // remove all dashes that are not directly followed by a letter
+            idea = idea.replace(/-(?![a-zA-Z])/g, '');
+            idea = idea.replace(/"/g, '');
+            idea = idea.replace(/{/g, '');
+            idea = idea.replace(/}/g, '');
+            // remove hashtags and the words that follow them
+            idea = idea.replace(/#[a-zA-Z0-9]+/g, '');
+            idea = idea.replace(/^\s*[\r\n]/gm, ''); // remove new line breaks
+            idea = idea.trim();
+            // check if last character contains punctuation and if not add a period
+            if (idea.length > 1 && !idea[idea.length - 1].match(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g)) {
+              idea += '.';
+            }
+            return idea;
+          });
+        for (let j = 0; j < newTweetIdeas.length; j++) {
+          const newTweetIdea = newTweetIdeas[j];
+          const newIdea = await context.entities.GeneratedIdea.create({
+            data: {
+              content: newTweetIdea,
+              originalTweetId: originalTweet.id,
+              userId: user.id,
+            },
+          });
+          console.log('newIdea saved to DB: ', newIdea);
+        }
+
+        const interestingTweetDraft = await context.entities.TweetDraft.create({
+          data: {
+            content: draft.interestingTweet,
+            originalTweetId: originalTweet.id,
+            notes: draft.notes,
+            userId: user.id,
+          },
+        });
+
+        console.log('interestingTweetDraft saved to DB: ', interestingTweetDraft);
+
+        // create a delay to avoid rate limiting
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
   } catch (error: any) {
     console.log('error', error);
     throw new HttpError(500, error);
   }
-}
+};
 
 type TweetDraftsWithIdeas = {
   id: number;
@@ -229,10 +246,7 @@ type TweetDraftsWithIdeas = {
   };
 }[];
 
-export const getTweetDraftsWithIdeas: GetTweetDraftsWithIdeas<never, TweetDraftsWithIdeas> = async (
-  _args,
-  context
-) => {
+export const getTweetDraftsWithIdeas: GetTweetDraftsWithIdeas<never, TweetDraftsWithIdeas> = async (_args, context) => {
   if (!context.user) {
     throw new HttpError(401, 'User is not authorized');
   }
@@ -286,4 +300,4 @@ export const getEmbeddedNotes: GetEmbeddedNotes<never, GeneratedIdea[]> = async 
   });
 
   return notes;
-}
+};

@@ -8,6 +8,9 @@ app twitterAgent {
   },
   db: { 
     system: PostgreSQL,
+    seeds: [
+      import { getTwitterTokens } from "@server/scripts/tokens.js",
+    ]
   },
   auth: {
     userEntity: User,
